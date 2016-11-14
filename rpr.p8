@@ -5,6 +5,13 @@ __lua__
 ------ retro punk --------------
 -- rocket punk for pico8 -------
 --------------------------------
+-- TODO: Tap-to-jump
+-- TODO: Wall slide
+-- TODO: Ledge hange
+-- TODO: Ledge climb?
+-- TODO: Genericize Raycasting
+-- TODO: Raycast light
+-- TODO: Particles
 local t = 0;     -- current time
 local p =              -- player
  { x = 50, y = 50,
