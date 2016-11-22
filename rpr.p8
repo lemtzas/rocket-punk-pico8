@@ -1,239 +1,302 @@
 pico-8 cartridge // http://www.pico-8.com
-version 8
+version 10
 __lua__
 --------------------------------
 ------ retro punk --------------
 -- rocket punk for pico8 -------
 --------------------------------
--- TODO: Tap-to-jump
--- TODO: Wall slide
--- TODO: Ledge hange
--- TODO: Ledge climb?
--- TODO: Genericize Raycasting
--- TODO: Raycast light
--- TODO: Particles
+-- todo: tap-to-jump
+-- todo: wall slide
+-- todo: ledge hange
+-- todo: ledge climb?
+-- todo: genericize raycasting
+-- todo: raycast light
+-- todo: particles
+--
+-- these should not be gibberish:
+-- ”ƒ‹‘—Ž
 local t = 0;     -- current time
 local p =              -- player
- { x = 50, y = 50,
-  vx = 0, vy = 0,
-  fy = 0, -- the lower wall
-  inair = false, air = 0 };
+  { x = 50, y = 50,
+    vx = 0, vy = 0,
+    fy = 0, -- the lower wall
+    inair = false, air = 0 };
 local gravity = 5;
-local bsym = {"‹","‘","”","ƒ","Ž","—"}
+
+local missile_x, missile_y = 100,50
 
 -------------------------- util --
+
+function spaces(n)
+ local space = ""
+ for i=1,n do
+  space = space .. " "
+ end
+ return space
+end
+
+function dump(name, v)
+ _dump(name, v, 0)
+end
+
+-- todo: have this sort tables
+function _dump(name, v, depth)
+ local padding = spaces(depth*2)
+ if depth > 10 then
+  printh(padding .. "depth limit reached")
+  return
+ end
+ if type(v) == "table" then
+  printh(padding .. name .. " (table) len: " .. #v)
+  for k2,v2 in pairs(v) do
+   _dump(k2, v2, depth+1)
+  end
+ else
+  if type(v) == "boolean" then
+   v = v and "true" or "false"
+  elseif v == nil then
+   v = "nil"
+  elseif v == "function" then
+   v = "function"
+  end
+  printh(padding .. name .. " " .. v)
+ end
+end
+
 function len(x,y)
- return sqrt(len2(x,y))
+  return sqrt(len2(x,y))
 end
 
 function len2(x,y)
- return x*x + y*y
+  return x*x + y*y
 end
 
+function mpos()
+  return stat"32", stat"33"
+end
 
+-- read button bitmask
+-- (1 = primary, 2 = secondary, 4 = middle)
+function mbut(x)
+  return band(stat"34", x)
+end
 --------------------------------
 ----------------------- setup --
-cls(); rect(0,0,127,127,1)
-
-
+function _init()
+  cls(); rect(0,0,127,127,1)
+  -- poke(0x5f2d, 1) -- initiate mouse
+  px1,py1, px2,py2 ,px3,py3 =
+    p.x-4, p.y-2 ,p.x-4, p.y-2, p.x-4, p.y-2
+end
 --------------------------------
 ------------ callback: update --
-
 _b = {
- { count=0, isdown=false, used=false,
-   sym="‹", col= 8 }, -- left
- { count=0, isdown=false, used=false,
-   sym="‘", col= 9 }, -- right
- { count=0, isdown=false, used=false,
-   sym="”", col=11 }, -- up
- { count=0, isdown=false, used=false,
-   sym="ƒ", col=12 }, -- down
- { count=0, isdown=false, used=false,
-   sym="Ž", col=14 }, -- o
- { count=0, isdown=false, used=false,
-   sym="—", col=15 }  -- x
+  { count=0, isdown=false, used=false,
+      sym="‹", col= 8 }, -- left
+  { count=0, isdown=false, used=false,
+      sym="‘", col= 9 }, -- right
+  { count=0, isdown=false, used=false,
+      sym="”", col=11 }, -- up
+  { count=0, isdown=false, used=false,
+      sym="ƒ", col=12 }, -- down
+  { count=0, isdown=false, used=false,
+      sym="—", col=14 }, -- o
+  { count=0, isdown=false, used=false,
+      sym="Ž", col=15 }  -- x
 }
 
+local o_all = {}
+local o_gravity = {}
+add(o_all,p)
+add(o_gravity,p)
+
 function draw_debug()
- for i=0,5 do
-  local cur = b(i)
-  mon(cur.sym, cur.isdown, cur.count, cur.col)
- end
- mon("^", p.inair, p.air, 14)
- mon_draw(0,0)
- -- rectfill(0,0,32,32,5)
- -- cursor(1,1)
- -- color"7"
- -- up = b"2"
- -- print("up "..up.count)
- -- print(up.count==0)
- -- if p.inair then print"inair\n" end
- -- if p.onwalll then print"wall-l\n" end
- -- if p.onwallr then print"wall-r\n" end
+  for i=0,5 do
+    local cur = b(i)
+    mon(cur.sym, cur.isdown, cur.count, cur.col)
+  end
+  mon("^", p.inair, p.air, 14)
+  mon_draw(0,0)
+  -- rectfill(0,0,32,32,5)
+  -- cursor(1,1)
+  -- color"7"
+  -- up = b"2"
+  -- print("up "..up.count)
+  -- print(up.count==0)
+  -- if p.inair then print"inair\n" end
+  -- if p.onwalll then print"wall-l\n" end
+  -- if p.onwallr then print"wall-r\n" end
 end
 
 function b(i)
- return _b[i+1]
+  return _b[i+1]
 end
 
 function update_buttons()
- for i=1,6 do
-  local cur = _b[i]
-  isdown = btn(i-1)
-  cur.count = cur.count + 1
-  if isdown != cur.isdown then
-   cur.count = 0
-   cur.used = false
+  for i=1,6 do
+    local cur = _b[i]
+    isdown = btn(i-1)
+    cur.count = cur.count + 1
+    if isdown != cur.isdown then
+      cur.count = 0
+      cur.used = false
+    end
+    cur.isdown = isdown
   end
-  cur.isdown = isdown
- end
 end
 
 function bbuf(i)
- local cur = _b[i+1]
- return cur.count < 5 -- input buffering
+  local cur = _b[i+1]
+  return cur.count < 5 -- input buffering
 end
 
 function btnp2(i)
- local cur = _b[i+1]
- return cur.isdown
-  and cur.count < 2 -- input buffering
+  local cur = _b[i+1]
+  return cur.isdown
+    and cur.count < 2 -- input buffering
 end
 
-function horizontal_controls()
-if btn"0" and p.vx > -2 then
- p.vx = max(-2, p.vx - 0.6)
-end
-if btn"1" and p.vx < 2 then
- p.vx = min(2, p.vx + 0.6)
-end
+function comp_gravity(o)
+  p.vy = mid(4, -4, p.vy + 0.4)
+  p.air = p.inair and p.air + 1 or 0
+  p.vx = p.vx * (p.inair and 0.95 or 0.8)
 end
 
-function vertical_controls()
-
-if p.inair and btn"3" then
- p.vy = p.vy + 1
+function comp_init_movement()
+  -- raycasted collision
+  -- i am a monster
+  cls(); rect(0,0,127,127,1)
+  map(0,0,0,0,16,16)
 end
+
+function comp_movement(o)
+  local dir = atan2(o.vx, o.vy)
+  local vxy = len(o.vx,o.vy)
+  for i=2,vxy,2 do
+    o.y = o.y + 2 * sin(dir)
+    o.x = o.x + 2 * cos(dir)
+    collide(o)
+  end
+  o.y = o.y + (vxy % 2) * sin(dir)
+  o.x = o.x + (vxy % 2) * cos(dir)
+  collide(o)
+end
+
+function horizontal_controls(o,input)
+  if input.l and o.vx > -2 then
+    o.vx = max(-2, o.vx - 0.6)
+  end
+  if input.r and o.vx < 2 then
+    o.vx = min(2, o.vx + 0.6)
+  end
+end
+
+function vertical_controls(o,input)
+  if o.inair and input.d then
+    o.vy = o.vy + 0.5
+  end
+end
+
+function comp_player_controls(o, input)
+  dump("input",input)
+  horizontal_controls(o,input)
+  vertical_controls(o,input)
+
+  -- wall jumping
+  if o.inair then
+   if o.onwalll and input.x and input.l then
+    o.vy = -2.5
+    o.vx =  3.5
+   end
+   if o.onwallr and input.x and input.r then
+    o.vy = -2.5
+    o.vx = -3.5
+   end
+  end
+
+  -- straight jumping
+  if not o.inair and input.x then
+   o.inair = true
+   o.vy = -5
+  end
 end
 
 function _update()
- t = (t + 1) % 32767
+  t = (t + 1) % 32767
 
- update_buttons()
+  update_buttons()
 
- p.vy = p.vy + 0.4
- p.air = p.inair and p.air + 1 or 0
- p.vx = p.vx * (p.inair and 0.95 or 0.8)
+  -- gravity component
+  foreach(o_gravity, comp_gravity)
 
- local dir = atan2(p.vx, p.vy)
- local vxy = len(p.vx,p.vy)
- for i=2,vxy,2 do
-  p.y = p.y + 2 * sin(dir)
-  p.x = p.x + 2 * cos(dir)
-  collide()
- end
- p.y = p.y + (vxy % 2) * sin(dir)
- p.x = p.x + (vxy % 2) * cos(dir)
- collide()
+  -- movement component
+  comp_init_movement()
+  foreach(o_all, comp_movement)
 
- horizontal_controls()
- vertical_controls()
- -- straight jumping
- if not p.inair and btn(2) then
-  p.inair = true
-  p.vy = -5
- end
- -- wall jumping
- if p.inair then
-  if p.onwalll and btn(2) then
-   p.vy = -2.5
-   p.vx =  3.5
-  end
-  if p.onwallr and btn(2) then
-   p.vy = -2.5
-   p.vx = -3.5
-  end
- end
+  comp_player_controls(p,{
+    l = btn"0",
+    r = btn"1",
+    u = btn"2",
+    d = btn"3",
+    x = btn"4",
+    o = btn"5"
+  })
 end----- end callback: update --
 
-function collide()
- -- raycasted collision
- -- i am a monster
- cls(); rect(0,0,127,127,1)
- map(0,0,0,0,100,100)
- -- down
- for y=5,128 do
-  p.fy = p.y+y
-  c = pget(p.x, p.fy)
-  if(c != 0) then break end
- end
+function collide(o)
+  -- down
+  for y=0,128 do
+    o.fy = o.y+y
+    c = pget(o.x, o.fy)
+    if(c != 0) then break end
+  end
 
- p.inair = p.fy > p.y + 8
+  o.inair = o.fy > o.y + 4
 
- if(p.fy < p.y + 8) then
-  p.vy = 0
-  p.y = p.fy-8
-  p.air = 0
- end
- -- up
- for y=0,128 do
-  p.cy = p.y-y
-  c = pget(p.x, p.cy)
-  if(c != 0) then break end
- end
+  if(o.fy < o.y + 4) then
+    o.vy = 0
+    o.y = o.fy-4
+    o.air = 0
+  end
+  -- up
+  for y=0,128 do
+    o.cy = o.y-y
+    c = pget(o.x, o.cy)
+    if(c != 0) then break end
+  end
 
- if(p.cy > p.y - 3) then
-  p.vy = 0
-  p.y = p.cy+3
- end
+  if(o.cy > o.y - 4) then
+    o.vy = 0
+    o.y = o.cy+4
+  end
 
- -- right lower detection
- for x=0,128 do
-  p.rlw = p.x+x
-  c = pget(p.rlw, p.y+5)
-  if(c != 0) then break end
- end
- -- right upper detection
- for x=0,128 do
-  p.ruw = p.x+x
-  c = pget(p.ruw, p.y-2)
-  if(c != 0) then break end
- end
+  -- right detection
+  for x=0,128 do
+    o.rw = o.x+x
+    c = pget(o.rw, o.y)
+    if(c != 0) then break end
+  end
 
- -- right response
- p.onwallr = false
- if p.rlw < p.x + p.vx + 3 then
-  p.x = p.rlw - 3
-  p.onwallr = true
- end
- if p.ruw < p.x + p.vx + 3 then
-  p.x = p.ruw - 3
-  p.onwallr = true
- end
+  -- right response
+  o.onwallr = false
+  if o.rw < o.x + o.vx + 4 then
+    o.x = o.rw - 4
+    o.onwallr = true
+  end
 
- -- left lower detection
- for x=0,128 do
-  p.llw = p.x-x
-  c = pget(p.llw, p.y+5)
-  if(c != 0) then break end
- end
- -- left upper detection
- for x=0,128 do
-  p.luw = p.x-x
-  c = pget(p.luw, p.y-2)
-  if(c != 0) then break end
- end
+  -- left detection
+  for x=0,128 do
+    o.lw = o.x-x
+    c = pget(o.lw, o.y)
+    if(c != 0) then break end
+  end
 
- -- left response
- p.onwalll = false
- if p.llw > p.x + p.vx - 3 then
-  p.x = p.llw + 3
-  p.onwalll = true
- end
- if p.luw > p.x + p.vx - 3 then
-  p.x = p.luw + 3
-  p.onwalll = true
- end
+  -- left response
+  o.onwalll = false
+  if o.lw > o.x + o.vx - 4 then
+    o.x = o.lw + 4
+    o.onwalll = true
+  end
 end
 
 
@@ -241,31 +304,45 @@ end
 -------------- callback: draw --
 function _draw()
 
- cls(); rect(0,0,127,127,1)
- map(0,0,0,0,100,100)
- draw_debug()
+  cls(); rect(0,0,127,127,1)
+  map(0,0,0,0,100,100)
+  draw_debug()
 
- -- punk
- spr(1, p.x-8, p.y-8, 2, 2);
- -- down collision
- -- line(p.x, p.y, p.x, p.y + 128, 5)
- -- line(p.x, p.y, p.x, p.fy, 8)
- -- -- up collision
- -- line(p.x, p.y+5, p.x, p.y - 128, 5)
- -- line(p.x, p.y+5, p.x, p.cy, 8)
- -- -- right collision
- -- line(p.x, p.y+5, p.x+128, p.y+5, 5)
- -- line(p.x, p.y+5, p.rlw, p.y+5, 8)
- -- line(p.x, p.y-2, p.x+128, p.y-2, 5)
- -- line(p.x, p.y-2, p.ruw, p.y-2, 8)
- -- -- left collision
- -- line(p.x, p.y+5, p.x-128, p.y+5, 5)
- -- line(p.x, p.y+5, p.llw, p.y+5, 8)
- -- line(p.x, p.y-2, p.x-128, p.y-2, 5)
- -- line(p.x, p.y-2, p.luw, p.y-2, 8)
+  local mx,my = mpos();
+  printh(mx .. ", " .. my)
+  rectfill(mx-1,my-1,mx+1,my+1,8)
+  -- punk
+  px1,py1, px2,py2 ,px3,py3 =
+    px2,py2+2 ,px3,py3+2, p.x, p.y
+  px1,py1, px2,py2 =
+    mid(p.x-4,px1,p.x+4),
+    mid(p.y-4,py1,p.y+4),
+    mid(p.x-2,px2,p.x+2),
+    mid(p.y-2,py2,p.y+2)
+  spr(17, px1-4, py1-4, 1, 1, p.vx < 0)
+  spr(17, px2-4, py2-4, 1, 1, p.vx < 0)
+  spr(17, px3-4, py3-4, 1, 1, p.vx < 0)
+  spr(16, p.x-4, p.y-4, 1, 1, p.vx < 0)
+  -- line(p.x-1,p.y+2, p.x-4, p.y+7, 15)
+  -- line(p.x-1,p.y+2, p.x+4, p.y+7, 15)
+  -- line(p.x-1,p.y+2, p.x-4, p.y, 15)
+  -- line(p.x-1,p.y+2, p.x+4, p.y, 15)
 
- -------------------- overlay --
- -------------------------------
+  -- -- youdown collision
+  -- line(p.x, p.y, p.x, p.y + 128, 5)
+  -- line(p.x, p.y, p.x, p.fy, 8)
+  -- -- up collision
+  -- line(p.x, p.y+5, p.x, p.y - 128, 5)
+  -- line(p.x, p.y+5, p.x, p.cy, 8)
+  -- -- right collision
+  -- line(p.x, p.y, p.x+128, p.y, 5)
+  -- line(p.x, p.y, p.rw, p.y, 8)
+  -- -- left collision
+  -- line(p.x, p.y, p.x-128, p.y, 5)
+  -- line(p.x, p.y, p.lw, p.y, 8)
+
+  -------------------- overlay --
+  -------------------------------
 
 end ------ end callback: draw --
 
@@ -282,56 +359,58 @@ _mon_ordered = {}
 _mon = {}
 
 function mon_reals(what, on_off, scale, col)
- mon(what, on_off, scale*12, col)
+  mon(what, on_off, scale*12, col)
 end
 
 function mon(what, on_off, scale, col)
- cur = _mon[what] or {}
- cur.what = what
- cur.on_off = on_off
- cur.scale = scale
- cur.col = on_off and col or 5
+  cur = _mon[what] or {}
+  cur.what = what
+  cur.on_off = on_off
+  cur.scale = scale
+  cur.col = on_off and col or 5
 
- if not _mon[what] then
-  add(_mon_ordered, cur)
- end
+  if not _mon[what] then
+    add(_mon_ordered, cur)
+  end
 
- _mon[what] = cur
+  _mon[what] = cur
 end
 
 function mon_draw(sx,sy)
- rectfill(sx,sy-1,sx+8*#_mon_ordered+1,sy+8,7)
- for k,v in pairs(_mon_ordered) do
-  color(v.col)
-  x = sx + k*8 - 6
-  print(v.what, x, sy)
-  if v.scale > 0 then
-   line(x,sy+6,x+min(6,v.scale),sy+6)
+  circ(missile_x, missile_y, 2, 12)
+  -- line(missile_x, missile_y, p.x, p.y, 1)
+  rectfill(sx,sy-1,sx+8*#_mon_ordered+1,sy+8,7)
+  for k,v in pairs(_mon_ordered) do
+    color(v.col)
+    x = sx + k*8 - 6
+    print(v.what, x, sy)
+    if v.scale > 0 then
+      line(x,sy+6,x+min(6,v.scale),sy+6)
+    end
+    if v.scale > 6 then
+      line(x,sy+7,x+mid(0,6,v.scale-6),sy+7)
+    end
   end
-  if v.scale > 6 then
-   line(x,sy+7,x+mid(0,6,v.scale-6),sy+7)
-  end
- end
 end
 
 
 __gfx__
-000000000000000000000000000000000000000000000000000000000000000000000000bbbbbbbb00000000000000bbbb000000000000000000000bb0000000
-000000000000000000000000000000000000000000000000000000000000000000000000b777777b000000000000bb7bb7bb0000000000000000000bb0000000
-007007000000000000000000000000000000000000000000000000000000000000000000b777777b0000000000bb777bb777bb0000000000000000bbbb000000
-000770000000000880000000000000000000000000000000000000000000000000000000b777777b00000000bb77777bb77777bb00000000000000bbbb000000
-000770000000000880000000000000000000000000000000000000000000000000000000b777777b000000bb7777777bb7777777bb00000000000b7bb7b00000
-00700700000000a88a000000000000000000000000000000000000000000000000000000b777777b0000bb777777777bb777777777bb000000000b7bb7b00000
-0000000000000a0ff0a00000000000000000000000000000000000000000000000000000b777777b00bb77777777777bb77777777777bb000000b77bb77b0000
-000000000000000ff0000000000000000000000000000000000000000000000000000000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000b77bb77b0000
+000000000000000000000000000000000000000000000000000000000000000000000044bbbbbbbb00000000000000bbbb000000000000000000000bb0000000
+00222220000000000000000000000000000000000000000000022000aaaaaaa000000004b777777b000000000000bb7bb7bb0000000000000000000bb0000000
+02fffff00022220000000000000000000000000000000000002772000aaaaa0000000044b777777b0000000000bb777bb777bb0000000000000000bbbb000000
+0ff1f1f00022220000000000000000000000000000000000027117200aaaa00000000004b777777b00000000bb77777bb77777bb00000000000000bbbb000000
+0ffffff000000000000000000000000000000000000000000271172000aa000000000044b777777b000000bb7777777bb7777777bb00000000000b7bb7b00000
+0001100000000000000000000000000000000000000000000021120000a0000000000004b777777b0000bb777777777bb777777777bb000000000b7bb7b00000
+000110000000000000000000000000000000000000000000000110000000000000000044b777777b00bb77777777777bb77777777777bb000000b77bb77b0000
+000110000000000000000000000000000000000000000000000110000000000000000004bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000b77bb77b0000
 00000000000000000000000000000000000000000000000000000000000000000000000000000000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb000b777bb777b000
-00000000000000ffff0000000000000000000000000000000000000000000000000000000000000000bb77777777777bb77777777777bb00000b777bb777b000
-00000000000000faaf0000000000000000000000000000000000000000000000000000000000000b0000bb777777777bb777777777bb000000b7777bb7777b00
-00000000000000ff0f0000000000000000000000000000000000000000000000000000000000000b000000bb7777777bb7777777bb00000000b7777bb7777b00
-00000000000000ff0f0000000000000000000000000000000000000000000000000000000000000b00000000bb77777bb77777bb000000000b77777bb77777b0
-0000000000000ffaaf000000000000000000000000000000000000000000000000000000000000bb0000000000bb777bb777bb00000000000b77777bb77777b0
-0000000000000affffa00000000000000000000000000000000000000000000000000000000000bb000000000000bb7bb7bb000000000000b777777bb777777b
-00000000000000a00a00000000000000000000000000000000000000000000000000000000000bbb00000000000000bbbb00000000000000bbbbbbbbbbbbbbbb
+0005555000000000000000000000000000000000000000000000000000000000000000000000000000bb77777777777bb77777777777bb00000b777bb777b000
+0055550000666600000000000000000000000000000000000000000000000000000000000000000b0000bb777777777bb777777777bb000000b7777bb7777b00
+0055660000666600000000000000000000000000000000000000000000000000000000000000000b000000bb7777777bb7777777bb00000000b7777bb7777b00
+0055550000000000000000000000000000000000000000000000000000000000000000000000000b00000000bb77777bb77777bb000000000b77777bb77777b0
+000110000000000000000000000000000000000000000000000000000000000000000000000000bb0000000000bb777bb777bb00000000000b77777bb77777b0
+000110000000000000000000000000000000000000000000000000000000000000000000000000bb000000000000bb7bb7bb000000000000b777777bb777777b
+00011000000000000000000000000000000000000000000000000000000000000000000000000bbb00000000000000bbbb00000000000000bbbbbbbbbbbbbbbb
 00000000000000000000000000000000000000000000000000000000000000000000000000000bbb0000bbbb000000000000000bb0000000bbbbbbbbbbbbbbbb
 0000000000000000000000000000000000000000000000000000000000000000000000000000bbbb0000b77b00000000000000bbbb000000b777777bb777777b
 000000000000000000000000000000000000000000000000000000000000000000000000000bbbbb0000b77b0000000000000b7bb7b000000b77777bb77777b0
@@ -451,10 +530,10 @@ __map__
 0909090909090909090909090909090900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0900000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0900000000000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0900000900000009090909000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0900000900000009050505000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0900000900000009000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-0905000905050509000505000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0900000900000809090909000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0900000900000809050505000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0900000900000809000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+0905000905050809000505000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0904000904040404040404040400000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0900000900000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 0900000900000000000000000000000900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
