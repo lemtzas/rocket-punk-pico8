@@ -272,12 +272,7 @@ function collide(o)
   end
 
   -- right detection
-  for x=0,128 do
-    o.rw = o.x+x
-    c = pget(o.rw, o.y)
-    if(c != 0) then break end
-  end
-  o.c_right = c
+  o.rw, _, o.c_right = project_collision(o.x,o.y, o.x+128,o.y)
 
   -- right response
   o.onwallr = false
@@ -290,12 +285,7 @@ function collide(o)
   o.slider = o.rw < o.x + o.vx + 4
 
   -- left detection
-  for x=0,128 do
-    o.lw = o.x-x
-    c = pget(o.lw, o.y)
-    if(c != 0) then break end
-  end
-  o.c_left = c
+  o.lw, _, o.c_left = project_collision(o.x,o.y, o.x-128,o.y)
 
   -- left response
   o.onwalll = false
