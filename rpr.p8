@@ -24,7 +24,8 @@ local p =              -- player
     prev_input = {}}
 local gravity = 5
 
-local missile_x, missile_y = 100,50
+
+local missile = {x = 100, y = 50}
 
 -------------------------- util --
 
@@ -215,6 +216,11 @@ function vertical_controls(o,input)
 end
 
 function comp_player_controls(o, input)
+  if o.dead then
+    o.slidel,o.slider = false,false
+    return
+  end
+
   if o.inair then
     o.jumptimer = (o.jumptimer or 0)+ 1
   else
@@ -252,6 +258,7 @@ function comp_player_controls(o, input)
 end
 
 function collide(o)
+  if o.dead then return end
   local c = 0
   -- down
   _, o.fy, o.c_down = project_collision(o.x,o.y, o.x,o.y+128)
@@ -298,6 +305,88 @@ function collide(o)
   o.slidel = o.lw > o.x + o.vx - 5
 
   o.onladder = (o.slidel and o.c_left == 4) or (o.slider and o.c_right == 4)
+end
+
+function comp_seeker_drone(missile, target)
+  if missile.done then return end
+
+  -- seek
+  missile.obstruction_x, missile.obstruction_y, missile.obstruction_col =
+    project_collision(missile.x, missile.y, target.x, target.y)
+
+  -- seek only what we can see
+  missile.locked = missile.obstruction_col == 0
+  if missile.locked then
+    missile.target_x, missile.target_y = target.x, target.y
+  end
+
+  -- activate after 30 frames
+  missile.active_counter = missile.obstruction_col == 0 and (missile.active_counter or 0) + 1 or 0
+  missile.active = missile.active or missile.active_counter > 30
+
+  -- deactivate when we're close to our target
+  if not missile.target_x then return end
+  local dx, dy = missile.target_x-missile.x, missile.target_y-missile.y
+  local tdx, tdy = target.x-missile.x, target.y-missile.y
+  missile.active = missile.active and not (abs(dx) < 3 and abs(dy) < 3)
+
+  if missile.active and abs(tdx) < 5 and abs(tdy) < 5 then
+    missile.done = true
+    missile.active = false
+    target.dead = true
+    target.hit_by = missile
+  end
+
+  if missile.active and not missile.done then
+    local scale = 1 / len(dx,dy)
+    missile.x = missile.x + dx * scale
+    missile.y = missile.y + dy * scale
+  end
+end
+
+function comp_dumb_missile(missile, target)
+  if missile.done then return end
+  missile.vx = missile.vx or 0
+  missile.vy = missile.vy or 0
+  missile.target_x = missile.target_x or missile.x
+  missile.target_y = missile.target_y or missile.y
+  missile.px, missile.py = missile.x, missile.y
+
+  -- seek
+  missile.obstruction_x, missile.obstruction_y, missile.obstruction_col =
+    project_collision(missile.x, missile.y, target.x, target.y)
+
+  -- activate after 30 frames
+  missile.active_counter = missile.obstruction_col == 0 and (missile.active_counter or 0) + 1 or 0
+  missile.active = missile.active or missile.active_counter > 30
+
+  if not missile.active then return end
+  -- seek only what we can see
+  missile.locked = missile.obstruction_col == 0
+  if missile.locked then
+    missile.target_x, missile.target_y = target.x, target.y
+  end
+
+  local dx, dy = missile.target_x-missile.x, missile.target_y-missile.y
+  local scale = 1 / len(dx,dy)
+  local target_dir, dir = atan2(dx,dy), atan2(missile.vx, missile.vy)
+  local dir_diff = target_dir - dir
+  dir_diff =
+    (dir_diff > 0.5 and dir_diff - 1) or
+    (dir_diff < -.5 and dir_diff + 1) or dir_diff
+  local new_dir = dir + mid(-0.01, dir_diff, 0.01)
+  missile.vx, missile.vy = cos(new_dir), sin(new_dir)
+
+  missile.x = missile.x + missile.vx
+  missile.y = missile.y + missile.vy
+
+  local tdx, tdy = target.x-missile.x, target.y-missile.y
+  if missile.active and abs(tdx) < 5 and abs(tdy) < 5 then
+    missile.done = true
+    missile.active = false
+    target.dead = true
+    target.hit_by = missile
+  end
 end
 
 function line_p(x1,y1, x2,y2)
@@ -351,7 +440,7 @@ function project_collision(x1,y1, x2,y2)
     end
   end
 
-  return x2, y2, false
+  return x2, y2, 0
 end
 
 function _update()
@@ -374,6 +463,8 @@ function _update()
     x = btn"4",
     o = btn"5"
   })
+
+  comp_dumb_missile(missile, p)
 end
 
 function _draw()
@@ -393,10 +484,38 @@ function _draw()
     mid(p.y-4,py1,p.y+4),
     mid(p.x-2,px2,p.x+2),
     mid(p.y-2,py2,p.y+2)
+  if p.dead then
+    for i=1,15 do pal(i,8) end
+  end
   spr(5, px1-4, py1-4, 1, 1, p.vx < 0)
   spr(5, px2-4, py2-4, 1, 1, p.vx < 0)
   spr(5, px3-4, py3-4, 1, 1, p.vx < 0)
   spr(0, p.x-4, p.y-4, 1, 1, p.vx < 0)
+  pal()
+
+  local col =
+    (missile.done and 0) or
+    (missile.active and 8) or
+    (missile.active_counter > 10 and 9) or
+    (missile.active_counter > 0 and 10) or 1
+  if not missile.done then
+    for i=5,0,-1 do
+      circfill(missile.x-missile.vx*i, missile.y-missile.vy*i, 1, 5)
+    end
+    local cx, cy = missile.x-missile.vx*5, missile.y-missile.vy*5
+    line(missile.x+missile.vx*2,missile.y+missile.vy*2,
+      cx, cy, 5)
+    line(missile.x,missile.y,
+      cx, cy, col)
+  end
+  if missile.active and not missile.locked then
+    circ(missile.target_x, missile.target_y, 1, 8)
+  end
+  -- if missile.obstruction_col ~= 0 then
+  --   line(missile.x, missile.y, missile.obstruction_x, missile.obstruction_y, missile.obstruction_col)
+  -- end
+  -- line(missile_x, missile_y, p.x, p.y, 1)
+
   -- line(p.x-1,p.y+2, p.x-4, p.y+7, 15)
   -- line(p.x-1,p.y+2, p.x+4, p.y+7, 15)
   -- line(p.x-1,p.y+2, p.x-4, p.y, 15)
@@ -451,8 +570,6 @@ function mon(what, on_off, scale, col)
 end
 
 function mon_draw(sx,sy)
-  circ(missile_x, missile_y, 2, 12)
-  -- line(missile_x, missile_y, p.x, p.y, 1)
   rectfill(sx,sy-1,sx+8*#_mon_ordered+1,sy+8,7)
   for k,v in pairs(_mon_ordered) do
     color(v.col)
@@ -470,13 +587,13 @@ end
 
 __gfx__
 000000000000000000000000000000000000000000000000000000000000000000000004bbbbbbbb00000000000000bbbb000000000000000000000bb0000000
-00222220002222200000000000000000000000000000000000022000aaaaaaa000000004b777777b000000000000bb7bb7bb0000000000000000000bb0000000
-02fffff002fffff000000000000000000000000000777700002772000aaaaa0000000004b777777b0000000000bb777bb777bb0000000000000000bbbb000000
-0ff1f1f00ff1f1f000000000000000000000000000777700027117200aaaa00000000004b777777b00000000bb77777bb77777bb00000000000000bbbb000000
-0ffffff00ffffff0000000000000000000000000000000000271172000aa000000000004b777777b000000bb7777777bb7777777bb00000000000b7bb7b00000
-0001100000011000000000000000000000000000000000000021120000a0000000000004b777777b0000bb777777777bb777777777bb000000000b7bb7b00000
-000110000f01100000000000000000000000000000000000000110000000000000000004b777777b00bb77777777777bb77777777777bb000000b77bb77b0000
-0001100000f1100000000000000000000000000000000000000110000000000000000004bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000b77bb77b0000
+00666660000000000000000000000000000000000000000000022000aaaaaaa000000004b777777b000000000000bb7bb7bb0000000000000000000bb0000000
+06fffff00000000000000000000000000000000000666600002772000aaaaa0000000004b777777b0000000000bb777bb777bb0000000000000000bbbb000000
+0ff1f1f00000000000000000000000000000000000666600027117200aaaa00000000004b777777b00000000bb77777bb77777bb00000000000000bbbb000000
+0ffffff000000000000000000000000000000000000000000271172000aa000000000004b777777b000000bb7777777bb7777777bb00000000000b7bb7b00000
+0001100000000000000000000000000000000000000000000021120000a0000000000004b777777b0000bb777777777bb777777777bb000000000b7bb7b00000
+000110000000000000000000000000000000000000000000000110000000000000000004b777777b00bb77777777777bb77777777777bb000000b77bb77b0000
+000110000000000000000000000000000000000000000000000110000000000000000004bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb0000b77bb77b0000
 00000000000000000000000000000000000000000000000000000000000000040000000000000000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb000b777bb777b000
 0005550000000000000000000000000000000000000000000000000000000004000000000000000000bb77777777777bb77777777777bb00000b777bb777b000
 0055550000000000000000000000000000000000000000000000000000000004000000000000000b0000bb777777777bb777777777bb000000b7777bb7777b00
