@@ -570,15 +570,25 @@ function draw_baked_lights(surfaces)
       local dx, dy = 128*cos(i), 128*sin(i)
       -- printh(dx .. " " .. dy)
       local x, y, col = project_collision(origin_x,origin_y, origin_x+dx,origin_y+dy)
-      targets[x] = targets[x] or {}
-      targets[x][y] = col
+      if not targets[x] or not targets[x][y] then
+        targets[x] = targets[x] or {}
+        targets[x][y] = col
+        add(surfaces,{x=x,y=y,col=col})
+      end
     end
 
-    printh("t " .. #targets)
-    for x,v in pairs(targets) do
-      for y,col in pairs(v) do
-        printh(x .. " " .. y .. " - " .. col)
-       add(surfaces,{x=x,y=y,col=col})
+    for i,v in pairs(surfaces) do
+      if i == 1 or i == #surfaces then
+        v.edge = true
+      else
+        local v_prev = surfaces[i-1]
+        local v_next = surfaces[i+1]
+        local v_prev_d = abs(v_prev.x-v.x) + abs(v_prev.y-v.y)
+        local v_next_d = abs(v_next.x-v.x) + abs(v_next.y-v.y)
+        if v_prev_d > 3 or v_next_d > 3 then
+          printh(v_prev_d .. " d " .. v_next_d)
+          v.edge = true
+        end
       end
     end
 
@@ -586,16 +596,23 @@ function draw_baked_lights(surfaces)
   end
 
   local hits = {}
+  local counter = 0
   for t in all(surfaces) do
-    if rnd(6) > 4 then
+    counter = counter + 1
+    if counter % 4 == 1 or t.edge then
       local x, y, col = project_collision(origin_x,origin_y, t.x,t.y)
-      add(hits, {x=x, y=y})
+      local wall = t.x == x and t.y == y
+      add(hits, {x=x, y=y, edge=t.edge, wall=wall})
     end
-    pset(t.x,t.y,10)
+    -- pset(t.x,t.y,10)
   end
 
-  for h in all(hits) do
-    line(origin_x,origin_y, h.x, h.y, 10)
+  for i,h in pairs(hits) do
+    line(origin_x,origin_y, h.x, h.y, h.edge and 8 or 10)
+    local hprev = hits[i-1]
+    if hprev and hprev.wall and h.wall and not (hprev.edge and h.edge) then
+      line(hprev.x,hprev.y, h.x,h.y, 15)
+    end
   end
 
   ------ propogation (bad)
